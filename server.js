@@ -8,7 +8,7 @@ const PORT = 4000;
 
 // auto-create data folder
 const dataDir = path.join(ROOT, "data");
-const entriesFile = path.join(dataDir, "entries.txt");
+const entriesFile = path.join(dataDir, "entries.jsonl");
 fs.mkdirSync(dataDir, { recursive: true });
 
 // serve frontend
@@ -17,24 +17,32 @@ app.use(express.json({ limit: "200kb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// read all entries (latest first)
-app.get("/api/entries", (req, res) => {
-  if (!fs.existsSync(entriesFile)) return res.json({ items: [] });
-
+function readAllEntries() {
+  if (!fs.existsSync(entriesFile)) return [];
   const lines = fs
     .readFileSync(entriesFile, "utf8")
     .split("\n")
     .filter(Boolean);
+  const items = [];
+  for (const line of lines) {
+    try {
+      items.push(JSON.parse(line));
+    } catch {}
+  }
+  return items;
+}
 
-  const items = lines
-    .map((line) => {
-      // line format: timestamp \t text
-      const [ts, ...rest] = line.split("\t");
-      return { createdAt: Number(ts) || 0, text: rest.join("\t") };
-    })
-    .sort((a, b) => b.createdAt - a.createdAt)
+function writeAllEntries(items) {
+  const content =
+    items.map((x) => JSON.stringify(x)).join("\n") + (items.length ? "\n" : "");
+  fs.writeFileSync(entriesFile, content, "utf8");
+}
+
+// list entries (latest first)
+app.get("/api/entries", (req, res) => {
+  const items = readAllEntries()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .slice(0, 500);
-
   res.json({ items });
 });
 
@@ -44,11 +52,35 @@ app.post("/api/entries", (req, res) => {
     const text = (req.body?.text || "").trim();
     if (!text) return res.status(400).json({ error: "Text is required" });
 
-    const entry = { createdAt: Date.now(), text };
-    const line = `${entry.createdAt}\t${entry.text.replace(/\r?\n/g, "\\n")}\n`;
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      text,
+      createdAt: Date.now(),
+    };
 
-    fs.appendFileSync(entriesFile, line, "utf8");
+    fs.appendFileSync(entriesFile, JSON.stringify(entry) + "\n", "utf8");
     res.json({ entry });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+// delete entry by id
+app.delete("/api/entries/:id", (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    if (!id) return res.status(400).json({ error: "Missing id" });
+
+    const items = readAllEntries();
+    const before = items.length;
+    const filtered = items.filter((x) => x.id !== id);
+
+    if (filtered.length === before) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    writeAllEntries(filtered);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || "Server error" });
   }
