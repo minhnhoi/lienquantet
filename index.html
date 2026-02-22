@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Sự kiện Liên QUân</title>
+  <title>Lưu Text vào Folder</title>
   <style>
     :root { font-family: system-ui, Arial, sans-serif; }
     body { margin: 0; background: #f6f7fb; }
@@ -31,8 +31,9 @@
 </head>
 <body>
   <main class="wrap">
-    <h1>Lưu mã thẻ sự kiện</h1>
+    <h1>Lưu Text vào Folder (không Mongo)</h1>
 
+    <!-- ADD -->
     <section class="card">
       <label class="label">Nhập text</label>
       <textarea id="text" rows="5" placeholder="Nhập nội dung..."></textarea>
@@ -42,19 +43,21 @@
         <button id="copyInputBtn" class="btn secondary" type="button">Copy text đang nhập</button>
         <span id="status" class="muted"></span>
       </div>
+      <div class="muted">* Server sẽ tự check trùng (không phân biệt hoa thường, gộp khoảng trắng).</div>
     </section>
 
+    <!-- LIST + FILTER -->
     <section class="card">
       <div class="row space">
         <h2>Danh sách đã lưu</h2>
         <div class="row" style="margin-top:0">
-          <span id="countPill" class="pill">0</span>
+          <span id="countPill" class="pill">0 mục</span>
           <button id="reloadBtn" class="btn secondary" type="button">Tải lại</button>
         </div>
       </div>
 
       <label class="label">Lọc theo từ khóa</label>
-      <input id="filterInput" type="text" placeholder="Gõ để lọc... (VD: 1,2,3,4,5,6,...)" />
+      <input id="filterInput" type="text" placeholder="Gõ để lọc... (VD: 'abc', 'học phí', 'todo')" />
       <div class="row">
         <button id="clearFilterBtn" class="btn secondary" type="button">Xóa lọc</button>
         <span id="filterInfo" class="muted"></span>
@@ -80,7 +83,7 @@
     const filterInfo = $("#filterInfo");
     const countPill = $("#countPill");
 
-    let allItems = []; // lưu list gốc từ server
+    let allItems = [];
 
     async function copyToClipboard(value) {
       try {
@@ -176,9 +179,8 @@
             const res = await fetch(`/api/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
             const data = await res.json();
             if (!res.ok) throw new Error(data?.error || "Xóa thất bại");
-
             flash("Đã xóa!");
-            await loadList(); // reload để cập nhật allItems
+            await loadList();
           } catch (e) {
             flash(e.message, 2200);
           } finally {
@@ -219,6 +221,7 @@
       flash(ok ? "Đã copy!" : "Copy lỗi.");
     });
 
+    // Save (server check exists)
     saveBtn.addEventListener("click", async () => {
       saveBtn.disabled = true;
       try {
@@ -230,11 +233,17 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text })
         });
+
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || "Lưu thất bại");
 
-        flash("Đã lưu!");
-        textEl.value = "";
+        if (data.exists) {
+          flash("Text này đã tồn tại rồi (không lưu thêm).", 2000);
+        } else {
+          flash("Đã lưu!", 1200);
+          textEl.value = "";
+        }
+
         await loadList();
       } catch (e) {
         flash(e.message, 2200);
@@ -251,4 +260,3 @@
   </script>
 </body>
 </html>
-
