@@ -17,24 +17,25 @@ app.use(express.json({ limit: "200kb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
+function normalizeText(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")      // gộp nhiều khoảng trắng
+    .toLowerCase();            // không phân biệt hoa thường
+}
+
 function readAllEntries() {
   if (!fs.existsSync(entriesFile)) return [];
-  const lines = fs
-    .readFileSync(entriesFile, "utf8")
-    .split("\n")
-    .filter(Boolean);
+  const lines = fs.readFileSync(entriesFile, "utf8").split("\n").filter(Boolean);
   const items = [];
   for (const line of lines) {
-    try {
-      items.push(JSON.parse(line));
-    } catch {}
+    try { items.push(JSON.parse(line)); } catch {}
   }
   return items;
 }
 
 function writeAllEntries(items) {
-  const content =
-    items.map((x) => JSON.stringify(x)).join("\n") + (items.length ? "\n" : "");
+  const content = items.map((x) => JSON.stringify(x)).join("\n") + (items.length ? "\n" : "");
   fs.writeFileSync(entriesFile, content, "utf8");
 }
 
@@ -46,20 +47,32 @@ app.get("/api/entries", (req, res) => {
   res.json({ items });
 });
 
-// add entry
+// add entry (WITH duplicate check)
 app.post("/api/entries", (req, res) => {
   try {
-    const text = (req.body?.text || "").trim();
+    const textRaw = (req.body?.text || "");
+    const text = textRaw.trim();
     if (!text) return res.status(400).json({ error: "Text is required" });
+
+    const norm = normalizeText(text);
+
+    // đọc existing để check trùng
+    const items = readAllEntries();
+    const existed = items.find((x) => normalizeText(x.text) === norm);
+
+    if (existed) {
+      // đã tồn tại -> không ghi thêm
+      return res.json({ exists: true, entry: existed });
+    }
 
     const entry = {
       id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
       text,
-      createdAt: Date.now(),
+      createdAt: Date.now()
     };
 
     fs.appendFileSync(entriesFile, JSON.stringify(entry) + "\n", "utf8");
-    res.json({ entry });
+    res.json({ exists: false, entry });
   } catch (e) {
     res.status(500).json({ error: e.message || "Server error" });
   }
